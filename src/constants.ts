@@ -22,3 +22,7 @@ export const TNT_IDS: readonly string[] = [
   "diamond", "obsidian", "springy", "speedy", "lucky", "fire", "nuke", "ice",
 ];
 export const ORE_ITEMS: readonly string[] = ["dirt", "stone", "coal", "gold", "diamond", "bedrock"];
+
+// Client onboarding progress: the client's data/tutorial.js TUTORIAL_DONE_STEP (finished). Keep in
+// step by hand.
+export const TUTORIAL_DONE_STEP = 7;

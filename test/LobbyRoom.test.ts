@@ -4,7 +4,7 @@ import { ColyseusTestServer, boot } from "@colyseus/testing";
 
 import appConfig from "../src/app.config.js";
 import { LobbyState } from "../src/rooms/schema/LobbyState.js";
-import { sanitizeProgress, sanitizeOres, sanitizeTntOwned } from "../src/rooms/LobbyRoom.js";
+import { sanitizeProgress, sanitizeOres, sanitizeTntOwned, resolveTutorialStep } from "../src/rooms/LobbyRoom.js";
 import { __setPlayersForTest, type PlayerDoc } from "../src/db.js";
 
 // Hand-rolled fake `players` collection implementing only the subset LobbyRoom.ts calls:
@@ -22,6 +22,7 @@ function fakePlayersCollection(seed: PlayerDoc[] = []) {
       const base = existing ?? ({ _id: filter._id, ...(update.$setOnInsert ?? {}) } as PlayerDoc);
       const next = { ...base, ...(update.$set ?? {}) } as any;
       for (const [k, v] of Object.entries(update.$inc ?? {})) next[k] = (next[k] ?? 0) + (v as number);
+      for (const [k, v] of Object.entries(update.$max ?? {})) next[k] = Math.max(next[k] ?? -Infinity, v as number);
       docs.set(filter._id, next as PlayerDoc);
     },
     find(_filter: any) {
@@ -198,6 +199,27 @@ describe("LobbyRoom", () => {
     assert.strictEqual(fake.docs.get("u1")!.money, 10);
   });
 
+  it("never moves a saved tutorialStep backwards", async () => {
+    const fake = fakePlayersCollection();
+    __setPlayersForTest(fake);
+    const room = await colyseus.createRoom<LobbyState>("lobby", {});
+    const c = await colyseus.connectTo(room, { userId: "tut1", username: "Tom" });
+    await sleep(50);
+    c.send("saveProgress", { tutorialStep: 4 });
+    await sleep(80);
+    assert.strictEqual(fake.docs.get("tut1")!.tutorialStep, 4);
+    c.send("saveProgress", { money: 5, tutorialStep: 1 });
+    await sleep(80);
+    assert.strictEqual(fake.docs.get("tut1")!.tutorialStep, 4);
+    assert.strictEqual(fake.docs.get("tut1")!.money, 5);
+
+    const room2 = await colyseus.createRoom<LobbyState>("lobby", {});
+    const sent = captureSends(room2);
+    await colyseus.connectTo(room2, { userId: "tut1", username: "Tom" });
+    await sleep(100);
+    assert.strictEqual(sent.find(([t]) => t === "progress")![1].tutorialStep, 4);
+  });
+
   describe("sanitizeProgress", () => {
     it("rejects non-objects and clamps values", () => {
       assert.strictEqual(sanitizeProgress(null), null);
@@ -211,6 +233,17 @@ describe("LobbyRoom", () => {
       assert.deepStrictEqual(out.ores, {});
       assert.strictEqual(sanitizeProgress({ money: NaN })!.money, undefined);
       assert.strictEqual(sanitizeProgress({ tntEquipped: "bogus" })!.tntEquipped, undefined);
+    });
+
+    it("clamps tutorialStep and resolves it for saves that predate it", () => {
+      assert.strictEqual(sanitizeProgress({ tutorialStep: 3.9 })!.tutorialStep, 3);
+      assert.strictEqual(sanitizeProgress({ tutorialStep: 99 })!.tutorialStep, 7);
+      assert.strictEqual(sanitizeProgress({ tutorialStep: -2 })!.tutorialStep, 0);
+      assert.strictEqual(sanitizeProgress({ tutorialStep: "4" })!.tutorialStep, undefined);
+      const base = { _id: "u", money: 0, version: 1, updatedAt: new Date() };
+      assert.strictEqual(resolveTutorialStep(base), 0); // playtime-only doc: a new player
+      assert.strictEqual(resolveTutorialStep({ ...base, tutorialStep: 4 }), 4);
+      assert.strictEqual(resolveTutorialStep({ ...base, tntOwned: ["classic"] }), 7); // existing player
     });
 
     it("keeps only known TNT ids and ores", () => {

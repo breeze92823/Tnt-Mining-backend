@@ -36,7 +36,7 @@ stable Bloxity user id; omit it for a guest, whose progress isn't persisted.
 | Message | Payload | Cadence |
 |---|---|---|
 | `stats` | `{ money, damage, rebirths }` (all optional). `damage` = blast power (equipped TNT blast + clickPower, the HUD boom number) | debounced on change |
-| `saveProgress` | `{ money, gems, shells, rebirths, clickPower, damage, tnt, carryMax, placeMax, range, speed, tntOwned, tntEquipped, ores }` (all optional); no-op for a guest | debounced |
+| `saveProgress` | `{ money, gems, shells, rebirths, clickPower, damage, tnt, carryMax, placeMax, range, speed, tntOwned, tntEquipped, ores, tutorialStep }` (all optional); no-op for a guest; `tutorialStep` is stored with `$max`, so it never goes backwards | debounced |
 | `identify` | `{ username, userId }` | when sign-in state changes after join |
 
 `tntOwned` / `tntEquipped` are checked against `TNT_IDS` and `ores`
@@ -47,7 +47,7 @@ stable Bloxity user id; omit it for a guest, whose progress isn't persisted.
 
 | Message | Payload | When |
 |---|---|---|
-| `progress` | the saved fields above plus `playTime` | after a signed-in join/identify, if a saved doc exists |
+| `progress` | the saved fields above plus `playTime`; `tutorialStep` is 7 (done) for a save that predates the tutorial | after a signed-in join/identify, if a saved doc exists |
 | `noProgress` | `{}` | after a signed-in join/identify with no saved doc |
 | `leaderboard` | `{ damage, rebirths, money }`, each `Row[]` (top 10) with `Row = { id, name, value }` | every 15 s and on roster changes; live roster merged with all-time Mongo top scorers |
 
