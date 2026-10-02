@@ -41,6 +41,12 @@ function dedupeOnline(rows: OnlineRow[], stat: LeaderboardStat): OnlineRow[] {
   return [...byUserId.values(), ...anonymous];
 }
 
+const AVATAR_MAX_LEN = 4096;
+
+function sanitizeAvatar(raw: unknown): string {
+  return typeof raw === "string" && raw.length <= AVATAR_MAX_LEN ? raw : "";
+}
+
 function finite(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
@@ -121,6 +127,28 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
   private playTimeMark = new Map<string, number>();
 
   messages = {
+    // Position / facing / gait, throttled client-side -- not sent every physics frame.
+    move: (client: Client, msg: any) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      if (finite(msg?.x)) p.x = msg.x;
+      if (finite(msg?.y)) p.y = msg.y;
+      if (finite(msg?.z)) p.z = msg.z;
+      if (finite(msg?.yaw)) p.yaw = msg.yaw;
+      if (finite(msg?.moveBlend)) p.moveBlend = Math.min(1, Math.max(0, msg.moveBlend));
+      if (typeof msg?.grounded === "boolean") p.grounded = msg.grounded;
+      if (typeof msg?.bending === "boolean") p.bending = msg.bending;
+      if (msg?.slot === null) p.slot = -1;
+      else if (finite(msg?.slot)) p.slot = clampInt(msg.slot, 63);
+      if (typeof msg?.tnt === "string" && TNT_IDS.includes(msg.tnt)) p.tnt = msg.tnt;
+    },
+    // Bloxity avatar JSON; sent on connect and whenever the portal reports a change.
+    setAvatar: (client: Client, msg: { avatar?: string }) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      const avatar = sanitizeAvatar(msg?.avatar);
+      if (avatar) p.avatar = avatar;
+    },
     // Live stats for the leaderboards, sent debounced on change.
     stats: (client: Client, msg: { money?: number; damage?: number; rebirths?: number }) => {
       const p = this.state.players.get(client.sessionId);
@@ -213,9 +241,10 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
     this.userIds.delete(sessionId);
   }
 
-  onJoin(client: Client, options?: { username?: string; userId?: string }) {
+  onJoin(client: Client, options?: { username?: string; userId?: string; avatar?: string }) {
     const p = new PlayerState();
     p.username = typeof options?.username === "string" ? options.username.slice(0, 64) : "";
+    p.avatar = sanitizeAvatar(options?.avatar);
     this.state.players.set(client.sessionId, p);
     this.playTimeMark.set(client.sessionId, Date.now());
 
