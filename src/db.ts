@@ -22,6 +22,9 @@ export interface PlayerDoc {
   speed?: number;
   tntOwned?: string[];
   tntEquipped?: string;
+  // Client onboarding step (constants.ts TUTORIAL_DONE_STEP = finished). Docs that predate it
+  // lack the field; LobbyRoom.ts resolveTutorialStep decides what they mean.
+  tutorialStep?: number;
   // Mined blocks held, by data/ores.js `item` (dirt, stone, coal, gold, diamond, bedrock).
   ores?: Record<string, number>;
   // Total seconds connected, measured by the SERVER clock (LobbyRoom.ts flushPlaytime) --

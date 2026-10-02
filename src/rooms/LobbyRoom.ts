@@ -12,6 +12,7 @@ import {
   UPGRADE_MAX,
   TNT_IDS,
   ORE_ITEMS,
+  TUTORIAL_DONE_STEP,
 } from "../constants.js";
 import { getPlayers, type PlayerDoc } from "../db.js";
 
@@ -92,7 +93,16 @@ export function sanitizeProgress(raw: unknown): Partial<PlayerDoc> | null {
   if (raw.tntOwned !== undefined) out.tntOwned = sanitizeTntOwned(raw.tntOwned);
   if (typeof raw.tntEquipped === "string" && TNT_IDS.includes(raw.tntEquipped)) out.tntEquipped = raw.tntEquipped;
   if (raw.ores !== undefined) out.ores = sanitizeOres(raw.ores);
+  if (finite(raw.tutorialStep)) out.tutorialStep = clampInt(raw.tutorialStep, TUTORIAL_DONE_STEP);
   return out;
+}
+
+// What loadProgress() sends down as tutorialStep. A doc without the field is either an existing
+// player whose save predates the tutorial (it holds client-saved data such as tntOwned, so they
+// are past it) or one made only by the playtime flush (a new player, step 0). Exported for tests.
+export function resolveTutorialStep(doc: PlayerDoc): number {
+  if (typeof doc.tutorialStep === "number") return clampInt(doc.tutorialStep, TUTORIAL_DONE_STEP);
+  return sanitizeTntOwned(doc.tntOwned).length > 0 ? TUTORIAL_DONE_STEP : 0;
 }
 
 /**
@@ -128,13 +138,16 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
       if (!players) return; // Mongo unset/unreachable -- degrade silently
       const patch = sanitizeProgress(msg);
       if (!patch) return;
+      // The tutorial only ever moves forward, so a stale client can never replay it for a player.
+      const { tutorialStep, ...rest } = patch;
       // Display name comes from this connection's own PlayerState, not `msg`.
       const p = this.state.players.get(client.sessionId);
       try {
         await players.updateOne(
           { _id: userId },
           {
-            $set: { ...patch, username: p?.username || "Player", updatedAt: new Date() },
+            $set: { ...rest, username: p?.username || "Player", updatedAt: new Date() },
+            ...(tutorialStep !== undefined && { $max: { tutorialStep } }),
             $setOnInsert: { version: 1 },
           },
           { upsert: true },
@@ -278,6 +291,7 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
         tntOwned: sanitizeTntOwned(doc.tntOwned),
         tntEquipped: doc.tntEquipped,
         ores: sanitizeOres(doc.ores),
+        tutorialStep: resolveTutorialStep(doc),
         playTime: p.playTime,
       });
     } catch (err) {
